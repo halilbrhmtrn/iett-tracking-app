@@ -20,4 +20,8 @@ public class BusDTO {
     private Double speed;
     private String licensePlate;
     private LocalDateTime time;
+    
+    private String nearestGarageCode;
+    private String nearestGarageName;
+    private Double distanceToNearestGarage;
 } 

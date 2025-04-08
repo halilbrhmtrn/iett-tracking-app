@@ -3,7 +3,11 @@ package com.iett.tracking.controller;
 import com.iett.tracking.dto.BusDTO;
 import com.iett.tracking.dto.SearchResponseDTO;
 import com.iett.tracking.model.Bus;
+import com.iett.tracking.model.Garage;
 import com.iett.tracking.repository.BusRepository;
+import com.iett.tracking.repository.GarageRepository;
+import com.iett.tracking.service.BusSoapService;
+import com.iett.tracking.util.SoapUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,10 +30,16 @@ import java.util.stream.Collectors;
 public class BusController {
 
     private final BusRepository busRepository;
+    private final BusSoapService busSoapService;
+    private final SoapUtils soapUtils;
+    private final GarageRepository garageRepository;
 
     @Autowired
-    public BusController(BusRepository busRepository) {
+    public BusController(BusRepository busRepository, BusSoapService busSoapService, SoapUtils soapUtils, GarageRepository garageRepository) {
         this.busRepository = busRepository;
+        this.busSoapService = busSoapService;
+        this.soapUtils = soapUtils;
+        this.garageRepository = garageRepository;
     }
 
     @GetMapping
@@ -42,6 +52,9 @@ public class BusController {
             size = 20;
         }
         
+        // First, ensure we have up-to-date data from SOAP service if needed
+        busSoapService.getBusData();
+        
         Pageable pageable = PageRequest.of(page, size, Sort.by("doorNo").ascending());
         Page<Bus> busPage = busRepository.findAll(pageable);
         
@@ -52,10 +65,12 @@ public class BusController {
         return ResponseEntity.ok(busDTOs);
     }
     
-    @GetMapping("/{doorNo}")
-    @Operation(summary = "Get a bus by door number", description = "Returns a bus by its door number")
-    public ResponseEntity<BusDTO> getBusByDoorNo(@PathVariable String doorNo) {
-        Optional<Bus> busOpt = busRepository.findById(doorNo);
+    @GetMapping("/{id}")
+    @Operation(summary = "Get a bus by ID", description = "Returns a bus by its ID")
+    public ResponseEntity<BusDTO> getBusById(@PathVariable Integer id) {
+        busSoapService.getBusData();
+        
+        Optional<Bus> busOpt = busRepository.findById(id);
         
         if (busOpt.isPresent()) {
             return ResponseEntity.ok(convertToDTO(busOpt.get()));
@@ -74,6 +89,8 @@ public class BusController {
         if (size > 20) {
             size = 20;
         }
+        
+        busSoapService.getBusData();
         
         List<Bus> buses = busRepository.findBySearchTerm(term);
         
@@ -111,14 +128,31 @@ public class BusController {
             
             Bus bus = new Bus();
             bus.setDoorNo(busDTO.getDoorNo());
+            bus.setDoorNumber(busDTO.getDoorNo());
             bus.setOperator(busDTO.getOperator());
-            bus.setGarage(busDTO.getGarage());
+            bus.setGarageCode(busDTO.getGarage());
             bus.setLatitude(busDTO.getLatitude());
             bus.setLongitude(busDTO.getLongitude());
+            
+            if (busDTO.getLatitude() != null && busDTO.getLongitude() != null) {
+                bus.setCoordinate(busDTO.getLatitude() + "," + busDTO.getLongitude());
+                
+                calculateNearestGarage(bus);
+            }
+            
             bus.setSpeed(busDTO.getSpeed());
             bus.setLicensePlate(busDTO.getLicensePlate());
             bus.setTime(busDTO.getTime() != null ? busDTO.getTime() : LocalDateTime.now());
+            bus.setRecordTime(bus.getTime());
             bus.setLastUpdated(LocalDateTime.now());
+            
+            if (bus.getId() == null) {
+                if (bus.getLicensePlate() != null && !bus.getLicensePlate().isEmpty()) {
+                    bus.setId(bus.getLicensePlate().hashCode());
+                } else {
+                    bus.setId((int) (Math.random() * 1000000));
+                }
+            }
             
             Bus savedBus = busRepository.save(bus);
             return new ResponseEntity<>(convertToDTO(savedBus), HttpStatus.CREATED);
@@ -127,21 +161,39 @@ public class BusController {
         }
     }
     
-    @PutMapping("/{doorNo}")
+    @PutMapping("/{id}")
     @Operation(summary = "Update a bus", description = "Updates an existing bus in the system")
-    public ResponseEntity<BusDTO> updateBus(@PathVariable String doorNo, @RequestBody BusDTO busDTO) {
+    public ResponseEntity<BusDTO> updateBus(@PathVariable Integer id, @RequestBody BusDTO busDTO) {
         try {
-            Optional<Bus> busOpt = busRepository.findById(doorNo);
+            Optional<Bus> busOpt = busRepository.findById(id);
             
             if (busOpt.isPresent()) {
                 Bus bus = busOpt.get();
                 if (busDTO.getOperator() != null) bus.setOperator(busDTO.getOperator());
-                if (busDTO.getGarage() != null) bus.setGarage(busDTO.getGarage());
-                if (busDTO.getLatitude() != null) bus.setLatitude(busDTO.getLatitude());
-                if (busDTO.getLongitude() != null) bus.setLongitude(busDTO.getLongitude());
+                if (busDTO.getGarage() != null) bus.setGarageCode(busDTO.getGarage());
+                
+                boolean coordinateUpdated = false;
+                if (busDTO.getLatitude() != null) {
+                    bus.setLatitude(busDTO.getLatitude());
+                    coordinateUpdated = true;
+                }
+                if (busDTO.getLongitude() != null) {
+                    bus.setLongitude(busDTO.getLongitude());
+                    coordinateUpdated = true;
+                }
+                
+                if (coordinateUpdated && bus.getLatitude() != null && bus.getLongitude() != null) {
+                    bus.setCoordinate(bus.getLatitude() + "," + bus.getLongitude());
+                    
+                    calculateNearestGarage(bus);
+                }
+                
                 if (busDTO.getSpeed() != null) bus.setSpeed(busDTO.getSpeed());
                 if (busDTO.getLicensePlate() != null) bus.setLicensePlate(busDTO.getLicensePlate());
-                if (busDTO.getTime() != null) bus.setTime(busDTO.getTime());
+                if (busDTO.getTime() != null) {
+                    bus.setTime(busDTO.getTime());
+                    bus.setRecordTime(busDTO.getTime());
+                }
                 bus.setLastUpdated(LocalDateTime.now());
                 
                 Bus updatedBus = busRepository.save(bus);
@@ -155,12 +207,58 @@ public class BusController {
         }
     }
     
-    @DeleteMapping("/{doorNo}")
+    private void calculateNearestGarage(Bus bus) {
+        if (bus.getLatitude() == null || bus.getLongitude() == null) {
+            return;
+        }
+        
+        List<Garage> garages = garageRepository.findAll();
+        if (garages.isEmpty()) {
+            return;
+        }
+        
+        double minDistance = Double.MAX_VALUE;
+        Garage nearestGarage = null;
+        
+        for (Garage garage : garages) {
+            if (garage.getCoordinate() == null) {
+                continue;
+            }
+            
+            String[] coordinates = garage.getCoordinate().split(",");
+            if (coordinates.length != 2) {
+                continue;
+            }
+            
+            try {
+                double garageLat = Double.parseDouble(coordinates[0]);
+                double garageLon = Double.parseDouble(coordinates[1]);
+                
+                double distance = soapUtils.calculateDistance(
+                    bus.getLatitude(), bus.getLongitude(), garageLat, garageLon);
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearestGarage = garage;
+                }
+            } catch (NumberFormatException e) {
+                continue;
+            }
+        }
+        
+        if (nearestGarage != null) {
+            bus.setNearestGarageCode(nearestGarage.getGarageCode());
+            bus.setNearestGarageName(nearestGarage.getGarageName());
+            bus.setDistanceToNearestGarage(minDistance);
+        }
+    }
+    
+    @DeleteMapping("/{id}")
     @Operation(summary = "Delete a bus", description = "Deletes a bus from the system")
-    public ResponseEntity<Void> deleteBus(@PathVariable String doorNo) {
+    public ResponseEntity<Void> deleteBus(@PathVariable Integer id) {
         try {
-            if (busRepository.existsById(doorNo)) {
-                busRepository.deleteById(doorNo);
+            if (busRepository.existsById(id)) {
+                busRepository.deleteById(id);
                 return ResponseEntity.noContent().build();
             } else {
                 return ResponseEntity.notFound().build();
@@ -170,16 +268,30 @@ public class BusController {
         }
     }
 
+    @GetMapping("/refresh")
+    @Operation(summary = "Force refresh of bus data", description = "Forces a refresh of bus data from the SOAP service")
+    public ResponseEntity<List<BusDTO>> refreshBusData() {
+        List<Bus> buses = busSoapService.getBusData();
+        List<BusDTO> busDTOs = buses.stream()
+                .map(this::convertToDTO)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(busDTOs);
+    }
+
+
     private BusDTO convertToDTO(Bus bus) {
         return BusDTO.builder()
                 .doorNo(bus.getDoorNo())
                 .operator(bus.getOperator())
-                .garage(bus.getGarage())
+                .garage(bus.getGarageCode())
                 .latitude(bus.getLatitude())
                 .longitude(bus.getLongitude())
                 .speed(bus.getSpeed())
                 .licensePlate(bus.getLicensePlate())
-                .time(bus.getTime())
+                .time(bus.getTime() != null ? bus.getTime() : bus.getRecordTime())
+                .nearestGarageCode(bus.getNearestGarageCode())
+                .nearestGarageName(bus.getNearestGarageName())
+                .distanceToNearestGarage(bus.getDistanceToNearestGarage())
                 .build();
     }
 } 

@@ -4,6 +4,7 @@ import com.iett.tracking.dto.GarageDTO;
 import com.iett.tracking.dto.SearchResponseDTO;
 import com.iett.tracking.model.Garage;
 import com.iett.tracking.repository.GarageRepository;
+import com.iett.tracking.service.GarageSoapService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,10 +27,12 @@ import java.util.stream.Collectors;
 public class GarageController {
 
     private final GarageRepository garageRepository;
+    private final GarageSoapService garageSoapService;
 
     @Autowired
-    public GarageController(GarageRepository garageRepository) {
+    public GarageController(GarageRepository garageRepository, GarageSoapService garageSoapService) {
         this.garageRepository = garageRepository;
+        this.garageSoapService = garageSoapService;
     }
 
     @GetMapping
@@ -41,6 +44,9 @@ public class GarageController {
         if (size > 20) {
             size = 20;
         }
+        
+        // First, ensure we have up-to-date data from SOAP service if needed
+        garageSoapService.getGarageData();
         
         Pageable pageable = PageRequest.of(page, size, Sort.by("id").ascending());
         Page<Garage> garagePage = garageRepository.findAll(pageable);
@@ -55,6 +61,9 @@ public class GarageController {
     @GetMapping("/{id}")
     @Operation(summary = "Get a garage by ID", description = "Returns a garage by its ID")
     public ResponseEntity<GarageDTO> getGarageById(@PathVariable Long id) {
+        // First, ensure we have up-to-date data from SOAP service if needed
+        garageSoapService.getGarageData();
+        
         Optional<Garage> garageOpt = garageRepository.findById(id);
         
         if (garageOpt.isPresent()) {
@@ -74,6 +83,9 @@ public class GarageController {
         if (size > 20) {
             size = 20;
         }
+        
+        // First, ensure we have up-to-date data from SOAP service if needed
+        garageSoapService.getGarageData();
         
         List<Garage> garages = garageRepository.findBySearchTerm(term);
         
@@ -156,6 +168,22 @@ public class GarageController {
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
+    }
+    
+    /**
+     * Endpoint to force refreshing garage data from SOAP service
+     * Useful for testing and manual refresh
+     * @return Updated list of garages
+     */
+    @GetMapping("/refresh")
+    @Operation(summary = "Force refresh of garage data", description = "Forces a refresh of garage data from the SOAP service")
+    public ResponseEntity<List<GarageDTO>> refreshGarageData() {
+        // This will force a refresh of the data
+        List<Garage> garages = garageSoapService.getGarageData();
+        List<GarageDTO> garageDTOs = garages.stream()
+                .map(this::convertToDTO)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(garageDTOs);
     }
 
     private GarageDTO convertToDTO(Garage garage) {

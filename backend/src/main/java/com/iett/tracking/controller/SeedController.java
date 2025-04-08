@@ -46,28 +46,20 @@ public class SeedController {
         busRepository.saveAll(buses);
         
         Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("garagesCreated", garages.size());
-        response.put("busesCreated", buses.size());
-        response.put("message", "Database seeded successfully with dummy data");
+        response.put("garages", garages.size());
+        response.put("buses", buses.size());
         
         return ResponseEntity.ok(response);
     }
     
     private List<Garage> createDummyGarages() {
         List<Garage> garages = new ArrayList<>();
-        LocalDateTime now = LocalDateTime.now();
         
-        garages.add(new Garage(null, "İkitelli Garage", "IKT", "41.0575,28.7783", now));
-        garages.add(new Garage(null, "Edirnekapı Garage", "EDK", "41.0332,28.9356", now));
-        garages.add(new Garage(null, "Hasanpaşa Garage", "HSP", "40.9944,29.0368", now));
-        garages.add(new Garage(null, "Anadolu Garage", "ANL", "41.0119,29.0713", now));
-        garages.add(new Garage(null, "Ayazağa Garage", "AYZ", "41.1071,29.0075", now));
-        garages.add(new Garage(null, "Kağıthane Garage", "KGT", "41.0694,28.9719", now));
-        garages.add(new Garage(null, "Sarıgazi Garage", "SRG", "41.0178,29.1871", now));
-        garages.add(new Garage(null, "Topkapı Garage", "TPK", "41.0147,28.9347", now));
-        garages.add(new Garage(null, "Tuzla Garage", "TZL", "40.8158,29.3009", now));
-        garages.add(new Garage(null, "Yunus Garage", "YNS", "40.8889,29.1869", now));
+        garages.add(new Garage(1L, "İkitelli Garajı", "IKT", "41.062763,28.796153", LocalDateTime.now()));
+        garages.add(new Garage(2L, "Edirnekapi Garajı", "EDK", "41.027978,28.940541", LocalDateTime.now()));
+        garages.add(new Garage(3L, "Hasanpaşa Garajı", "HSP", "40.992283,29.036486", LocalDateTime.now()));
+        garages.add(new Garage(4L, "Sarıgazi Garajı", "SRG", "41.004786,29.164681", LocalDateTime.now()));
+        garages.add(new Garage(5L, "Anadolu Garajı", "AND", "41.018436,29.071863", LocalDateTime.now()));
         
         return garages;
     }
@@ -76,7 +68,7 @@ public class SeedController {
         List<Bus> buses = new ArrayList<>();
         LocalDateTime now = LocalDateTime.now();
         
-        for (int i = 1; i <= 30; i++) {
+        for (int i = 1; i <= 20; i++) {
             Garage garage = garages.get(ThreadLocalRandom.current().nextInt(garages.size()));
             
             String[] coordinates = garage.getCoordinate().split(",");
@@ -85,18 +77,26 @@ public class SeedController {
             
             double lat = baseLat + (ThreadLocalRandom.current().nextDouble() - 0.5) * 0.05;
             double lng = baseLng + (ThreadLocalRandom.current().nextDouble() - 0.5) * 0.05;
+            double speed = ThreadLocalRandom.current().nextDouble(0, 80);
+            String licensePlate = "34 ABC " + i;
+            LocalDateTime recordTime = now.minusMinutes(ThreadLocalRandom.current().nextInt(60));
             
-            Bus bus = new Bus(
-                    "DOOR" + i,
-                    "Operator" + (i % 3 + 1),
-                    garage.getGarageCode(),
-                    lat,
-                    lng,
-                    ThreadLocalRandom.current().nextDouble(0, 80),
-                    "34 ABC " + i,
-                    now.minusMinutes(ThreadLocalRandom.current().nextInt(60)),
-                    now
-            );
+            Bus bus = new Bus();
+            bus.setId(i);
+            bus.setDoorNumber("DOOR" + i);
+            bus.setOperator("Operator" + (i % 3 + 1));
+            bus.setGarageCode(garage.getGarageCode());
+            bus.setLatitude(lat);
+            bus.setLongitude(lng);
+            bus.setSpeed(speed);
+            bus.setLicensePlate(licensePlate);
+            bus.setRecordTime(recordTime);
+            bus.setLastUpdated(now);
+            bus.setCoordinate(lat + "," + lng);
+            
+            bus.setNearestGarageCode(garage.getGarageCode());
+            bus.setNearestGarageName(garage.getGarageName());
+            bus.setDistanceToNearestGarage(0.0);
             
             buses.add(bus);
         }
