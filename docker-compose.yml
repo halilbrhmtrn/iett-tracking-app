@@ -30,6 +30,18 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/iett_tracking
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres
+      
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: iett-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=/api
 
 volumes:
   postgres_data: 
